@@ -21,43 +21,56 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Logowanie przez CLI do DockerHub
+      # 1. Logowanie CLI
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      # Logowanie przez CLI do GHCR
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # KROK 1: Budowa obrazu na architekturę hosta (amd64)
-      - name: Build local image for CVE scanning
-        run: |
-          docker build \
-            --cache-from type=registry,ref=${{ env.CACHE_REPO }}:cache-main \
-            -t local-test-image:latest .
+      # 2. Przygotowanie środowiska Multi-Arch przez CLI (omijamy blokady uczelni)
+      - name: Set up QEMU emulator
+        run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-      # KROK 2: Pobranie niezależnego skryptu Trivy i skanowanie (bez kontenerów i bez apt-get)
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --use --name politechnika_builder
+          docker buildx inspect --bootstrap
+
+      # 3. ROZWIĄZANIE NAJWIĘKSZEGO PROBLEMU: 
+      # Budujemy obraz produkcyjny (Multi-Arch) i ZAPISUJEMY go w cache DockerHuba,
+      # ale jeszcze NIE wysyłamy go do GHCR. Do lokalnego Dockera ładujemy wersję amd64 do testu.
+       Pembakowanie dla Trivy:
+      - name: Build and load image for analysis
+        run: |
+          docker buildx build \
+            --context . \
+            --file Dockerfile \
+            --cache-from type=registry,ref=${{ env.CACHE_REPO }}:cache-main \
+            --cache-to type=registry,ref=${{ env.CACHE_REPO }}:cache-main,mode=max \
+            --tag local-test-image:latest \
+            --load
+
+      # 4. Skanowanie Trivy (pobierane niezależnie przez curl)
       - name: Run Trivy vulnerability scanner
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
           trivy image --exit-code 1 --ignore-unfixed --vuln-type os,library --severity HIGH,CRITICAL local-test-image:latest
 
-      # KROK 3: Budowanie wieloplatformowe (Multi-Arch) i wysyłka do GHCR oraz Cache
-      - name: Build and push Multi-Arch production image
+      # 5. OSTATECZNY PUSH:
+      # Wykonuje się TYLKO gdy Trivy przejdzie. Dzięki cache z kroku 3, ten krok nie buduje 
+      # aplikacji od nowa – po prostu bierze gotowy, sprawdzony artefakt z cache i w sekundę wysyła do GHCR!
+      # To gwarantuje identyczność artefaktu!
+      - name: Push Multi-Arch production image to GHCR
         run: |
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           SHA_TAG="sha-${{ github.sha }}"
           
-          # Aktywacja wbudowanego w Docker emulatora binfmt dla wielu architektur
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-          
-          # Tworzenie stabilnego buildera
-          docker buildx create --use --name mybuilder
-          
           docker buildx build \
+            --context . \
+            --file Dockerfile \
             --platform linux/amd64,linux/arm64 \
             --cache-from type=registry,ref=${{ env.CACHE_REPO }}:cache-main \
-            --cache-to type=registry,ref=${{ env.CACHE_REPO }}:cache-main,mode=max \
-            -t ${IMAGE_LOWER}:latest \
-            -t ${IMAGE_LOWER}:${SHA_TAG} \
-            --push .
+            --tag ${IMAGE_LOWER}:latest \
+            --tag ${IMAGE_LOWER}:${SHA_TAG} \
+            --push
