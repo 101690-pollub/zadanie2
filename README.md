@@ -132,5 +132,3 @@ Takie rozwiązanie pozwala łatwo pobrać najnowszą wersję oraz jednoznacznie 
 Workflow został uruchomiony poprawnie w GitHub Actions, a obraz został opublikowany do GHCR po pozytywnym przejściu skanowania bezpieczeństwa. Automatycznie wygenerowane podsumowanie procesu budowania (*Docker Build Summary*) potwierdza prawidłowe ładowanie danych cache oraz poprawną strukturę manifestu wieloplatformowego dla systemów `amd64` oraz `arm64`.
 
 ```
-
-```
