@@ -8,7 +8,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   CACHE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/cloud-tech-cache
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Wyciszamy ostrzeżenie o Node.js
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-secure:
@@ -29,58 +29,35 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # Instalacja emulatorów QEMU bezpośrednio w systemie runnera (zamiast przez docker run --privileged)
-      - name: Install QEMU binfmt packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-user-static binfmt-support
-
-      # Tworzenie buildera Buildx korzystającego z systemowego QEMU
-      - name: Set up Docker Buildx
-        run: |
-          docker buildx create --name politechnika_builder --use
-          docker buildx inspect --bootstrap
-
-      # KROK 1: Budowa lokalna na architekturę runnera (amd64) w celu wykonania testu CVE
+      # KROK 1: Budowa obrazu na architekturę hosta (amd64)
       - name: Build local image for CVE scanning
         run: |
-          docker buildx build \
-            --context . \
-            --file Dockerfile \
-            --tag local-test-image:latest \
+          docker build \
             --cache-from type=registry,ref=${{ env.CACHE_REPO }}:cache-main \
-            --load
+            -t local-test-image:latest .
 
-      # KROK 2: Instalacja i uruchomienie Trivy jako binarnego narzędzia (bez docker run)
+      # KROK 2: Pobranie niezależnego skryptu Trivy i skanowanie (bez kontenerów i bez apt-get)
       - name: Run Trivy vulnerability scanner
         run: |
-          # Pobieranie oficjalnego instalatora Trivy
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.details.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-          
-          # Skanowanie obrazu
-          trivy image \
-            --exit-code 1 \
-            --ignore-unfixed \
-            --vuln-type os,library \
-            --severity HIGH,CRITICAL \
-            local-test-image:latest
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          trivy image --exit-code 1 --ignore-unfixed --vuln-type os,library --severity HIGH,CRITICAL local-test-image:latest
 
-      # KROK 3: Budowanie właściwe (Multi-Arch) i push
+      # KROK 3: Budowanie wieloplatformowe (Multi-Arch) i wysyłka do GHCR oraz Cache
       - name: Build and push Multi-Arch production image
         run: |
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           SHA_TAG="sha-${{ github.sha }}"
           
+          # Aktywacja wbudowanego w Docker emulatora binfmt dla wielu architektur
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          
+          # Tworzenie stabilnego buildera
+          docker buildx create --use --name mybuilder
+          
           docker buildx build \
-            --context . \
-            --file Dockerfile \
             --platform linux/amd64,linux/arm64 \
-            --tag ${IMAGE_LOWER}:latest \
-            --tag ${IMAGE_LOWER}:${SHA_TAG} \
             --cache-from type=registry,ref=${{ env.CACHE_REPO }}:cache-main \
             --cache-to type=registry,ref=${{ env.CACHE_REPO }}:cache-main,mode=max \
-            --push
+            -t ${IMAGE_LOWER}:latest \
+            -t ${IMAGE_LOWER}:${SHA_TAG} \
+            --push .
