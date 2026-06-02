@@ -8,7 +8,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   CACHE_REGISTRY: docker.io
-  # Zmień 'twoj-dockerhub-user' na swoją nazwę użytkownika lub zostaw zmienną, jeśli repo nazywa się tak samo
   CACHE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/cloud-tech-cache
 
 jobs:
@@ -82,7 +81,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ id.meta.outputs.tags }}
-          labels: ${{ id.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.CACHE_REPO }}:cache-main
           cache-to: type=registry,ref=${{ env.CACHE_REPO }}:cache-main,mode=max
