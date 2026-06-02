@@ -28,7 +28,7 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # 2. Przygotowanie środowiska Multi-Arch przez CLI (omijamy blokady uczelni)
+      # 2. Przygotowanie środowiska Multi-Arch przez CLI
       - name: Set up QEMU emulator
         run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
@@ -37,10 +37,7 @@ jobs:
           docker buildx create --use --name politechnika_builder
           docker buildx inspect --bootstrap
 
-      # 3. ROZWIĄZANIE NAJWIĘKSZEGO PROBLEMU: 
-      # Budujemy obraz produkcyjny (Multi-Arch) i ZAPISUJEMY go w cache DockerHuba,
-      # ale jeszcze NIE wysyłamy go do GHCR. Do lokalnego Dockera ładujemy wersję amd64 do testu.
-       Pembakowanie dla Trivy:
+      # 3. Budowanie obrazu dla Trivy (wykorzystuje i zapisuje cache)
       - name: Build and load image for analysis
         run: |
           docker buildx build \
@@ -57,10 +54,7 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
           trivy image --exit-code 1 --ignore-unfixed --vuln-type os,library --severity HIGH,CRITICAL local-test-image:latest
 
-      # 5. OSTATECZNY PUSH:
-      # Wykonuje się TYLKO gdy Trivy przejdzie. Dzięki cache z kroku 3, ten krok nie buduje 
-      # aplikacji od nowa – po prostu bierze gotowy, sprawdzony artefakt z cache i w sekundę wysyła do GHCR!
-      # To gwarantuje identyczność artefaktu!
+      # 5. Ostateczny Push do GHCR (błyskawiczny dzięki cache z kroku 3)
       - name: Push Multi-Arch production image to GHCR
         run: |
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
