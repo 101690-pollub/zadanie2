@@ -22,22 +22,18 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # QEMU dla arm64
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Logowanie DockerHub (cache)
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Logowanie GHCR
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -45,7 +41,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Nazwy tagów
       - name: Prepare image tags
         id: prep
         run: |
@@ -54,8 +49,6 @@ jobs:
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
           echo "sha_tag=sha-${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
-      # Budowa obrazu do skanowania
-      # (bez push do GHCR)
       - name: Build image for security scan
         uses: docker/build-push-action@v6
         with:
@@ -66,7 +59,6 @@ jobs:
           cache-from: type=registry,ref=${{ env.CACHE_IMAGE }}
           cache-to: type=registry,ref=${{ env.CACHE_IMAGE }},mode=max
 
-      # Instalacja Trivy
       - name: Install Trivy
         run: |
           sudo apt-get update
@@ -74,8 +66,7 @@ jobs:
           wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
           sudo mv ./bin/trivy /usr/local/bin/
 
-      # Test CVE
-      # Job zatrzyma się przy HIGH lub CRITICAL
+
       - name: Scan image with Trivy
         run: |
           trivy image \
@@ -84,8 +75,7 @@ jobs:
             --exit-code 1 \
             local-scan-image:latest
 
-      # Dopiero po przejściu testu bezpieczeństwa:
-      # budowa multiarch + push do GHCR
+
       - name: Build and push multi-platform image
         uses: docker/build-push-action@v6
         with:
