@@ -1,0 +1,88 @@
+name: CI/CD Multi-Arch Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  CACHE_REGISTRY: docker.io
+  # Zmień 'twoj-dockerhub-user' na swoją nazwę użytkownika lub zostaw zmienną, jeśli repo nazywa się tak samo
+  CACHE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/cloud-tech-cache
+
+jobs:
+  build-and-secure:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Konfiguracja QEMU (niezbędne do emulacji architektury arm64)
+      - name: Set up QEMU
+        uses: actions/setup-qemu-action@v3
+
+      # Konfiguracja Buildx (wieloplatformowe budowanie)
+      - name: Set up Docker Buildx
+        uses: actions/setup-buildx-action@v3
+
+      # Logowanie do DockerHub (na potrzeby zapisu/odczytu cache)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Logowanie do GitHub Container Registry (GHCR)
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Automatyczne generowanie tagów (latest oraz sha-commit)
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-
+
+      # KROK 1: Budowa lokalna na architekturę runnera (amd64) w celu wykonania testu CVE
+      - name: Build local image for CVE scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: local-test-image:latest
+          cache-from: type=registry,ref=${{ env.CACHE_REPO }}:cache-main
+
+      # KROK 2: Skanowanie obrazu za pomocą Trivy
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'local-test-image:latest'
+          format: 'table'
+          exit-code: '1' # Przerywa pipeline, jeśli znajdzie niedozwolone podatności
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'HIGH,CRITICAL'
+
+      # KROK 3: Budowanie właściwe (Multi-Arch) i wypchnięcie do GHCR (tylko gdy Trivy przejdzie pomyślnie)
+      - name: Build and push Multi-Arch production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ id.meta.outputs.tags }}
+          labels: ${{ id.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.CACHE_REPO }}:cache-main
+          cache-to: type=registry,ref=${{ env.CACHE_REPO }}:cache-main,mode=max

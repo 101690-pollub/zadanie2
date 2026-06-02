@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor Pogody</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f7f6; color: #333; margin: 0; padding: 40px; display: flex; flex-direction: column; align-items: center; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 450px; }
+        h1 { margin-top: 0; color: #2c3e50; font-size: 24px; text-align: center; }
+        label { font-weight: bold; display: block; margin: 15px 0 5px; color: #7f8c8d; }
+        select, button { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 16px; box-sizing: border-box; }
+        button { background: #3498db; color: white; border: none; margin-top: 20px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        button:hover { background: #2980b9; }
+        .result { margin-top: 25px; padding: 20px; background: #e8f4f8; border-left: 5px solid #3498db; border-radius: 4px; }
+        .result h3 { margin: 0 0 10px; color: #2c3e50; }
+        footer { margin-top: 30px; font-size: 12px; color: #95a5a6; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Sprawdź Pogodę</h1>
+    <form method="POST">
+        <label for="country">Kraj:</label>
+        <select name="country" id="country" required>
+            {% for country in countries.keys() %}
+                <option value="{{ country }}">{{ country }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="city">Miasto:</label>
+        <select name="city" id="city" required>
+            {% for country, cities in countries.items() %}
+                {% for city in cities.keys() %}
+                    <option value="{{ city }}">{{ city }} ({{ country }})</option>
+                {% endfor %}
+            {% endfor %}
+        </select>
+
+        <button type="submit">Pobierz dane</button>
+    </form>
+
+    {% if weather %}
+    <div class="result">
+        <h3>Wynik dla: {{ weather.city }}</h3>
+        <p><strong>Temperatura:</strong> {{ weather.temp }}°C</p>
+        <p><strong>Status:</strong> {{ weather.desc }}</p>
+    </div>
+    {% endif %}
+</div>
+
+</body>
+</html>
